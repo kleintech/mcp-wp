@@ -6,6 +6,66 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 This is a WordPress MCP (Model Context Protocol) server that allows interaction with WordPress sites through natural language via MCP-compatible clients like Claude Desktop. The server exposes WordPress REST API functionality as MCP tools.
 
+## Fork Workflow
+
+This clone is part of a fork-based contribution workflow targeting `InstaWP/mcp-wp`. **This section only exists on the `develop` branch** — feature branches and `main` won't have it, because we don't ship our personal workflow doc back upstream. If you don't see this section, you're on a branch off `main`; switch to `develop` (or run `git show develop:CLAUDE.md`) to read it.
+
+**Remotes:**
+- `origin` → `kleintech/mcp-wp` (the fork — push here)
+- `upstream` → `InstaWP/mcp-wp` (the source project — never push here)
+
+**Branch roles:**
+- `main` — mirror of `upstream/main`. **Never commit here directly.** Sync from upstream before starting new work.
+- `develop` — long-lived integration branch on the fork. Holds `main` plus every in-flight feature merged in via `--no-ff`. Use it for local development, running the server with all in-flight changes combined, and for keeping this workflow doc. **Do not open PRs from `develop`.**
+- `feature/<name>` — one per change. Branched off `main`, never off `develop` or another feature branch. Pushed to `origin`, used to open a PR upstream. After opening the PR, also merge into `develop` so the running fork has the change.
+
+**Per-feature workflow:**
+
+```bash
+# 1. Sync main from upstream
+git checkout main
+git fetch upstream
+git merge --ff-only upstream/main
+git push origin main
+
+# 2. Branch off main (NEVER off develop, NEVER off another feature)
+git checkout -b feature/<name>
+# ... work, commit ...
+
+# 3. Push to fork and open PR upstream
+git push -u origin feature/<name>
+gh pr create --repo InstaWP/mcp-wp --base main \
+  --head kleintech:feature/<name> --title "..." --body "..."
+
+# 4. Merge into develop so the fork has it locally
+git checkout develop
+git merge --no-ff feature/<name>
+git push origin develop
+```
+
+**After an upstream PR is merged:**
+
+```bash
+# Sync main with the new upstream history
+git checkout main
+git fetch upstream
+git merge --ff-only upstream/main
+git push origin main
+
+# Bring the canonical merged version into develop
+git checkout develop
+git merge main
+git push origin develop
+
+# Clean up the feature branch (local + remote)
+git branch -d feature/<name>
+git push origin --delete feature/<name>
+```
+
+**Commit message style:** Conventional Commits with a scope when one fits — `feat(wordpress): ...`, `fix(logging): ...`. Matches the project's recent structured commits.
+
+**Default behavior for new changes:** when the user asks for a change intended to go upstream, work on a `feature/<name>` branch off `main`. Never commit on `main`. Never commit on `develop` except for (a) merge commits from feature branches and (b) edits to this workflow section.
+
 ## Development Commands
 
 ### Build and Run
