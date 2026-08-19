@@ -609,6 +609,50 @@ npm run test:watch  # watch mode
 
 Tests run on `pull_request` and on pushes to `main` via `.github/workflows/test.yml`.
 
+### Releasing
+
+Merging a fix does not reach anyone — npm keeps serving the last published version until a release
+runs. Publishing is automated by `.github/workflows/release.yml`, triggered by a version tag:
+
+```bash
+# on main, with the fix already merged:
+# 1. move the CHANGELOG's [Unreleased] block under a `[x.y.z] - <date>` heading and commit it
+# 2. bump and tag — `npm version` writes package.json, commits, and creates the vx.y.z tag
+npm version patch          # or minor / major
+# 3. push the commit and the tag; the tag is what triggers the publish
+git push origin main --follow-tags
+```
+
+Do the CHANGELOG edit *before* `npm version`. Amending the commit afterwards leaves the tag pointing
+at the pre-amend commit, and the workflow would publish from that.
+
+The workflow refuses to publish if the tag and `package.json` disagree, or if that version is
+already on npm; it then builds, runs the tests, publishes with
+[provenance](https://docs.npmjs.com/generating-provenance-statements), and confirms the registry
+actually serves the new version before reporting success.
+
+If a tag exists but the publish failed (or predates this workflow), re-run it from
+**Actions → Release → Run workflow**, leaving the branch selector on `main` (that is where the
+workflow file is read from) and passing the tag name in the input. Two caveats: the tag's tree must
+already contain the `repository` field described below, and the provenance attestation records the
+ref the workflow was *dispatched from*, not the tag — so for a real release, prefer re-cutting a
+version and using the tag-push path.
+
+If the publish succeeds but the verification step goes red (a registry that stayed slow for more
+than two minutes), check npmjs.com before doing anything: the version is published, and re-running
+will now fail the already-on-npm guard by design. Nothing needs fixing in that case.
+
+**Setup, once:** the workflow needs an npm automation token with publish rights on the `@instawp`
+scope, stored as the repository secret `NPM_TOKEN` (Settings → Secrets and variables → Actions). An
+*automation* token specifically — a classic publish token fails in CI on a 2FA-enforced account.
+
+npm's [trusted publishing](https://docs.npmjs.com/trusted-publishers) would remove the stored token
+entirely, but it needs npm ≥ 11.5.1 and `setup-node` currently ships npm 10.x with Node 22, so it is
+not usable here without also upgrading npm inside the job.
+
+Publishing with provenance requires the `repository` field in `package.json` to match this repo — the
+registry rejects the publish otherwise. Don't remove it.
+
 ### Security
 
 - **Never commit your API keys or secrets to version control.**
