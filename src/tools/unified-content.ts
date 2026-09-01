@@ -16,9 +16,16 @@ const CACHE_DIR = process.env.UNIFIED_CONTENT_CACHE_DIR
 // Ensure the cache directory exists at module load time (best-effort)
 fs.ensureDir(CACHE_DIR).catch(() => {});
 
-// Cache for post types to reduce API calls
-let postTypesCache: any = null;
-let cacheTimestamp: number = 0;
+// Cache for post types, keyed per site, to reduce API calls.
+// Mirrors the per-site pattern in unified-taxonomies.ts: an unkeyed singleton
+// here let one site's post types shadow another's (the memory cache was checked
+// before the correctly-keyed disk cache), so endpoint resolution for custom
+// post types could use the wrong site's rest_base until a forced refresh.
+interface PostTypesCacheEntry {
+  data: any;
+  timestamp: number;
+}
+const postTypesCache = new Map<string, PostTypesCacheEntry>();
 const CACHE_DURATION = parseInt(process.env.WORDPRESS_CACHE_DURATION || '3600000'); // Default 1 hour, configurable
 
 // Helper function to load cache from disk
@@ -57,11 +64,13 @@ async function saveCacheToDisk(data: any, siteId?: string): Promise<void> {
 // Helper function to get all post types with caching
 async function getPostTypes(forceRefresh = false, siteId?: string) {
   const now = Date.now();
+  const cacheKey = siteId || '__default__';
 
   // Try memory cache first
-  if (!forceRefresh && postTypesCache && (now - cacheTimestamp) < CACHE_DURATION) {
+  const cached = postTypesCache.get(cacheKey);
+  if (!forceRefresh && cached && (now - cached.timestamp) < CACHE_DURATION) {
     logToFile('Using memory-cached post types', 'debug');
-    return postTypesCache;
+    return cached.data;
   }
 
   // Try disk cache if memory cache is stale
@@ -69,8 +78,7 @@ async function getPostTypes(forceRefresh = false, siteId?: string) {
     const diskCache = await loadCacheFromDisk(siteId);
     if (diskCache && (now - diskCache.timestamp) < CACHE_DURATION) {
       logToFile('Using disk-cached post types', 'debug');
-      postTypesCache = diskCache.data;
-      cacheTimestamp = diskCache.timestamp;
+      postTypesCache.set(cacheKey, { data: diskCache.data, timestamp: diskCache.timestamp });
       return diskCache.data;
     }
   }
@@ -79,8 +87,7 @@ async function getPostTypes(forceRefresh = false, siteId?: string) {
   try {
     logToFile('Fetching post types from API', 'info');
     const response = await makeWordPressRequest('GET', 'types', undefined, { siteId });
-    postTypesCache = response;
-    cacheTimestamp = now;
+    postTypesCache.set(cacheKey, { data: response, timestamp: now });
 
     // Save to disk for persistence
     await saveCacheToDisk(response, siteId);
