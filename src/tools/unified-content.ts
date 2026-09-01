@@ -1,6 +1,7 @@
 // src/tools/unified-content.ts
 import { Tool } from '@modelcontextprotocol/sdk/types.js';
 import { makeWordPressRequest, logToFile } from '../wordpress.js';
+import { siteManager } from '../config/site-manager.js';
 import { z } from 'zod';
 import * as fs from 'fs-extra';
 import * as path from 'path';
@@ -27,6 +28,28 @@ interface PostTypesCacheEntry {
 }
 const postTypesCache = new Map<string, PostTypesCacheEntry>();
 const CACHE_DURATION = parseInt(process.env.WORDPRESS_CACHE_DURATION || '3600000'); // Default 1 hour, configurable
+
+/**
+ * Resolve an optional siteId to the concrete id the cache layers key on.
+ *
+ * Callers reach the default site two ways — omitting site_id, or passing its
+ * actual id — and both must land in the same cache slot, or a forced refresh
+ * through one shape leaves the other stale (and, when a *non-default* site is
+ * explicitly named "default", the two sites would share a disk file).
+ * Exported for unified-taxonomies.ts, whose per-site cache has the same
+ * two-shapes property.
+ */
+export function resolveCacheSiteId(siteId?: string): string {
+  if (siteId) {
+    return siteId;
+  }
+  try {
+    return siteManager.getDefaultSiteId() || '__default__';
+  } catch {
+    // Nothing configured yet (e.g. unit tests); still cache coherently.
+    return '__default__';
+  }
+}
 
 // Helper function to load cache from disk
 async function loadCacheFromDisk(siteId?: string): Promise<{ data: any; timestamp: number } | null> {
@@ -64,7 +87,7 @@ async function saveCacheToDisk(data: any, siteId?: string): Promise<void> {
 // Helper function to get all post types with caching
 async function getPostTypes(forceRefresh = false, siteId?: string) {
   const now = Date.now();
-  const cacheKey = siteId || '__default__';
+  const cacheKey = resolveCacheSiteId(siteId);
 
   // Try memory cache first
   const cached = postTypesCache.get(cacheKey);
@@ -75,7 +98,7 @@ async function getPostTypes(forceRefresh = false, siteId?: string) {
 
   // Try disk cache if memory cache is stale
   if (!forceRefresh) {
-    const diskCache = await loadCacheFromDisk(siteId);
+    const diskCache = await loadCacheFromDisk(cacheKey);
     if (diskCache && (now - diskCache.timestamp) < CACHE_DURATION) {
       logToFile('Using disk-cached post types', 'debug');
       postTypesCache.set(cacheKey, { data: diskCache.data, timestamp: diskCache.timestamp });
@@ -90,7 +113,7 @@ async function getPostTypes(forceRefresh = false, siteId?: string) {
     postTypesCache.set(cacheKey, { data: response, timestamp: now });
 
     // Save to disk for persistence
-    await saveCacheToDisk(response, siteId);
+    await saveCacheToDisk(response, cacheKey);
 
     return response;
   } catch (error: any) {
