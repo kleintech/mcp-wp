@@ -66,7 +66,7 @@ describe('convertHtmlToBlocks heading levels', () => {
       content_format: 'markdown',
     });
 
-    expect(blocks).toContain('{"level":2}');
+    expect(blocks).toContain('<!-- wp:heading {"level":2} -->');
     expect(blocks).not.toMatch(/<!-- wp:heading -->/);
   });
 
